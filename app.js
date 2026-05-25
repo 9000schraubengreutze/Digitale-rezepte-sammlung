@@ -42,6 +42,8 @@ const starterRecipes = [
 let recipes = loadRecipes();
 let activeView = "recipes";
 let currentScan = null;
+let currentScanFile = null;
+let ocrBusy = false;
 
 const elements = {
   recipeCount: document.querySelector("#recipeCount"),
@@ -58,6 +60,8 @@ const elements = {
   dialogTitle: document.querySelector("#dialogTitle"),
   deleteButton: document.querySelector("#deleteRecipeButton"),
   scanPreview: document.querySelector("#scanPreview"),
+  ocrButton: document.querySelector("#ocrButton"),
+  ocrStatus: document.querySelector("#ocrStatus"),
   chatLog: document.querySelector("#chatLog"),
   chatForm: document.querySelector("#chatForm"),
   chatInput: document.querySelector("#chatInput")
@@ -86,6 +90,7 @@ elements.form.addEventListener("submit", saveRecipe);
 elements.deleteButton.addEventListener("click", deleteRecipe);
 elements.chatForm.addEventListener("submit", handleAssistantSearch);
 fields.scan.addEventListener("change", handleScanUpload);
+elements.ocrButton.addEventListener("click", runOcrForCurrentScan);
 
 render();
 addAssistantMessage("assistant", "Ich kann deine gespeicherten Rezepte nach Zutaten, Kategorie, Anlass oder Dauer durchsuchen.");
@@ -211,7 +216,9 @@ function switchView(viewName) {
 function openRecipeDialog(recipe = null) {
   elements.form.reset();
   currentScan = null;
+  currentScanFile = null;
   elements.scanPreview.textContent = "Noch kein neuer Scan ausgewaehlt.";
+  updateOcrStatus("Lade ein Foto oder PDF hoch, dann kann die App die Felder automatisch vorfuellen.", false);
 
   if (recipe) {
     elements.dialogTitle.textContent = "Rezept bearbeiten";
@@ -226,6 +233,7 @@ function openRecipeDialog(recipe = null) {
       scanType: recipe.scanType,
       scanName: recipe.scanName
     };
+    updateOcrStatus("OCR kann nur fuer neu ausgewaehlte Dateien gestartet werden.", false);
     renderScanPreview(currentScan);
     elements.deleteButton.classList.remove("hidden");
   } else {
@@ -291,6 +299,9 @@ function handleScanUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
+  currentScanFile = file;
+  updateOcrStatus("Datei geladen. Texterkennung startet gleich automatisch...", true);
+
   if (file.type === "application/pdf") {
     currentScan = {
       scanData: "",
@@ -298,6 +309,7 @@ function handleScanUpload(event) {
       scanName: file.name
     };
     renderScanPreview(currentScan);
+    runOcrForCurrentScan();
     return;
   }
 
@@ -309,8 +321,163 @@ function handleScanUpload(event) {
       scanName: file.name
     };
     renderScanPreview(currentScan);
+    runOcrForCurrentScan();
   });
   reader.readAsDataURL(file);
+}
+
+async function runOcrForCurrentScan() {
+  if (!currentScanFile || ocrBusy) return;
+
+  if (!window.Tesseract) {
+    updateOcrStatus("OCR konnte nicht geladen werden. Pruefe deine Internetverbindung und lade die Seite neu.", true);
+    return;
+  }
+
+  ocrBusy = true;
+  elements.ocrButton.disabled = true;
+  updateOcrStatus("Texterkennung laeuft. Das kann bei PDFs ein bis zwei Minuten dauern...", true);
+
+  try {
+    const text = currentScanFile.type === "application/pdf"
+      ? await extractTextFromPdfScan(currentScanFile)
+      : await extractTextFromImage(currentScan.scanData);
+
+    const cleanText = cleanupOcrText(text);
+    if (!cleanText) {
+      updateOcrStatus("Ich konnte keinen lesbaren Text erkennen. Ein schaerferer Scan oder mehr Kontrast hilft meistens.", false);
+      return;
+    }
+
+    applyOcrText(cleanText);
+    updateOcrStatus("Text erkannt und Felder vorgefuellt. Bitte kurz kontrollieren, OCR kann sich bei alten Scans verlesen.", false);
+  } catch (error) {
+    console.error(error);
+    updateOcrStatus("Texterkennung fehlgeschlagen. Du kannst die Felder weiter manuell ausfuellen oder es erneut versuchen.", false);
+  } finally {
+    ocrBusy = false;
+    elements.ocrButton.disabled = !currentScanFile;
+  }
+}
+
+async function extractTextFromImage(imageData) {
+  const result = await Tesseract.recognize(imageData, "deu+eng", {
+    logger: (event) => {
+      if (event.status === "recognizing text") {
+        updateOcrStatus(`Texterkennung Bild: ${Math.round(event.progress * 100)}%`, true);
+      }
+    }
+  });
+  return result.data.text;
+}
+
+async function extractTextFromPdfScan(file) {
+  const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+
+  const documentData = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: documentData }).promise;
+  const pageCount = Math.min(pdf.numPages, 3);
+  const pageTexts = [];
+
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    updateOcrStatus(`PDF-Seite ${pageNumber} von ${pageCount} wird vorbereitet...`, true);
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 2.1 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+    const result = await Tesseract.recognize(canvas.toDataURL("image/png"), "deu+eng", {
+      logger: (event) => {
+        if (event.status === "recognizing text") {
+          updateOcrStatus(`PDF-Seite ${pageNumber}: ${Math.round(event.progress * 100)}%`, true);
+        }
+      }
+    });
+    pageTexts.push(result.data.text);
+  }
+
+  return pageTexts.join("\n\n");
+}
+
+function applyOcrText(text) {
+  const extracted = extractRecipeFields(text);
+
+  if (!fields.notes.value.trim()) fields.notes.value = text;
+  if (!fields.title.value.trim() && extracted.title) fields.title.value = extracted.title;
+  if (!fields.ingredients.value.trim() && extracted.ingredients) fields.ingredients.value = extracted.ingredients;
+  if (!fields.time.value.trim() && extracted.time) fields.time.value = extracted.time;
+  if (!fields.category.value.trim() && extracted.category) fields.category.value = extracted.category;
+}
+
+function extractRecipeFields(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const title = lines.find((line) => (
+    line.length >= 4 &&
+    line.length <= 70 &&
+    !/^zutaten|^zubereitung|^arbeitszeit|^backzeit|^kochzeit|^\d+/.test(normalize(line))
+  )) || "";
+
+  const ingredients = extractIngredientLines(lines);
+  const timeMatch = text.match(/(\d{1,3})\s*(min\.?|minute[n]?|std\.?|stunde[n]?)/i);
+  const category = guessCategory(`${title} ${text}`);
+
+  return {
+    title,
+    ingredients: ingredients.join("\n"),
+    time: timeMatch ? timeMatch[0].replace(/\s+/g, " ") : "",
+    category
+  };
+}
+
+function extractIngredientLines(lines) {
+  const ingredientStart = lines.findIndex((line) => /zutaten|einkaufsliste/i.test(line));
+  const stopPattern = /zubereitung|anleitung|backen|kochen|arbeitszeit|naehrwerte|notizen/i;
+  const amountPattern = /^(\d+|[¼½¾⅓⅔]|\d+[.,]\d+)\s*(g|kg|ml|l|el|tl|prise|stueck|stk\.?|bund|dose|packung|becher|tasse)?\b/i;
+
+  const source = ingredientStart >= 0 ? lines.slice(ingredientStart + 1) : lines;
+  const ingredients = [];
+
+  for (const line of source) {
+    if (stopPattern.test(line) && ingredients.length > 0) break;
+    if (amountPattern.test(line) || /^[*-]\s+/.test(line)) {
+      ingredients.push(line.replace(/^[*-]\s+/, ""));
+    }
+    if (ingredients.length >= 18) break;
+  }
+
+  return ingredients;
+}
+
+function guessCategory(text) {
+  const value = normalize(text);
+  if (/kuchen|torte|muffin|plaetzchen|dessert|suess|quark|creme/.test(value)) return "Suessspeise";
+  if (/suppe|eintopf|bruehe/.test(value)) return "Suppe";
+  if (/salat|vinaigrette|dressing/.test(value)) return "Salat";
+  if (/pasta|nudel|spaghetti|lasagne/.test(value)) return "Pasta";
+  if (/brot|broetchen|hefeteig/.test(value)) return "Backen";
+  if (/kartoffel|auflauf|pfanne|reis|gemuese|fleisch|fisch/.test(value)) return "Abendessen";
+  return "";
+}
+
+function cleanupOcrText(text) {
+  return String(text || "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function updateOcrStatus(message, isActive) {
+  elements.ocrStatus.textContent = message;
+  elements.ocrStatus.classList.toggle("active", isActive);
+  elements.ocrButton.disabled = isActive || !currentScanFile;
 }
 
 function renderScanPreview(scan) {

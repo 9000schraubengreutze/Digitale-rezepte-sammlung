@@ -136,6 +136,11 @@
           <input id="scanInput" type="file" accept="image/*,.pdf" />
         </label>
 
+        <div class="ocr-panel">
+          <button class="secondary-action" id="ocrButton" type="button" disabled>Text automatisch auslesen</button>
+          <p id="ocrStatus">Lade ein Foto oder PDF hoch, dann kann die App die Felder automatisch vorfüllen.</p>
+        </div>
+
         <div class="scan-preview" id="scanPreview"></div>
 
         <div class="dialog-actions">
@@ -148,6 +153,7 @@
       </form>
     </dialog>
 
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
