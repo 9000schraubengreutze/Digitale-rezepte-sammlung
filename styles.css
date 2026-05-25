@@ -316,6 +316,11 @@ select:focus {
   color: #986900;
 }
 
+.card-actions button.delete-card {
+  border-color: rgba(199, 76, 60, 0.32);
+  color: var(--tomato);
+}
+
 .empty-state {
   border: 1px dashed var(--line);
   border-radius: 8px;
