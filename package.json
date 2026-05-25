@@ -1,0 +1,9 @@
+{
+  "name": "digitale-rezepte-sammlung",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lokale Web-App fuer eingescannte Rezepte mit Suche, Favoriten und Rezept-Assistent.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

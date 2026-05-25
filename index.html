@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Digitale Rezeptsammlung</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">R</span>
+          <div>
+            <h1>Rezeptsammlung</h1>
+            <p>Scans, Suche, Favoriten</p>
+          </div>
+        </div>
+
+        <nav class="nav-tabs" aria-label="Ansichten">
+          <button class="nav-tab active" type="button" data-view="recipes">Rezepte</button>
+          <button class="nav-tab" type="button" data-view="favorites">Favoriten</button>
+          <button class="nav-tab" type="button" data-view="assistant">AI-Suche</button>
+        </nav>
+
+        <div class="stats">
+          <div>
+            <strong id="recipeCount">0</strong>
+            <span>Rezepte</span>
+          </div>
+          <div>
+            <strong id="favoriteCount">0</strong>
+            <span>Favoriten</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="toolbar" aria-label="Rezeptsuche">
+          <label class="search-field">
+            <span>Suche</span>
+            <input id="searchInput" type="search" placeholder="Titel, Zutaten, Notizen..." autocomplete="off" />
+          </label>
+          <button class="primary-action" id="newRecipeButton" type="button">+ Rezept</button>
+        </section>
+
+        <section class="view active" id="recipesView">
+          <div class="section-heading">
+            <div>
+              <h2>Alle Rezepte</h2>
+              <p>Durchsuche deine Scans und öffne jedes Rezept als Detailansicht.</p>
+            </div>
+            <select id="categoryFilter" aria-label="Kategorie filtern">
+              <option value="">Alle Kategorien</option>
+            </select>
+          </div>
+          <div class="recipe-grid" id="recipeGrid"></div>
+          <p class="empty-state hidden" id="emptyRecipes">Noch keine passenden Rezepte gefunden.</p>
+        </section>
+
+        <section class="view" id="favoritesView">
+          <div class="section-heading">
+            <div>
+              <h2>Favoriten</h2>
+              <p>Schneller Zugriff auf deine wichtigsten Rezepte.</p>
+            </div>
+          </div>
+          <div class="recipe-grid" id="favoriteGrid"></div>
+          <p class="empty-state hidden" id="emptyFavorites">Du hast noch keine Favoriten markiert.</p>
+        </section>
+
+        <section class="view" id="assistantView">
+          <div class="assistant-layout">
+            <div class="chat-panel">
+              <div class="section-heading compact">
+                <div>
+                  <h2>AI-Rezeptsuche</h2>
+                  <p>Frage nach Zutaten, Anlass, Dauer oder Art des Gerichts.</p>
+                </div>
+              </div>
+              <div class="chat-log" id="chatLog" aria-live="polite"></div>
+              <form class="chat-form" id="chatForm">
+                <input id="chatInput" type="text" placeholder="z.B. Was kann ich mit Kartoffeln und Quark kochen?" />
+                <button type="submit">Suchen</button>
+              </form>
+            </div>
+            <div class="assistant-results">
+              <h3>Vorgeschlagene Rezepte</h3>
+              <div class="recipe-grid single" id="assistantGrid"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="recipeDialog">
+      <form class="recipe-form" id="recipeForm" method="dialog">
+        <div class="dialog-header">
+          <div>
+            <h2 id="dialogTitle">Rezept hinzufügen</h2>
+            <p>Scan hochladen und Suchtext erfassen.</p>
+          </div>
+          <button class="icon-button" id="closeDialog" type="button" aria-label="Schließen">×</button>
+        </div>
+
+        <input type="hidden" id="recipeId" />
+
+        <label>
+          Titel
+          <input id="titleInput" required type="text" placeholder="Omas Apfelkuchen" />
+        </label>
+
+        <div class="form-row">
+          <label>
+            Kategorie
+            <input id="categoryInput" type="text" placeholder="Kuchen, Abendessen..." />
+          </label>
+          <label>
+            Dauer
+            <input id="timeInput" type="text" placeholder="45 Min." />
+          </label>
+        </div>
+
+        <label>
+          Zutaten
+          <textarea id="ingredientsInput" rows="4" placeholder="Äpfel, Mehl, Zucker..."></textarea>
+        </label>
+
+        <label>
+          Rezepttext / OCR-Text
+          <textarea id="notesInput" rows="5" placeholder="Text vom Scan, Zubereitung oder eigene Notizen..."></textarea>
+        </label>
+
+        <label>
+          Scan oder Foto
+          <input id="scanInput" type="file" accept="image/*,.pdf" />
+        </label>
+
+        <div class="scan-preview" id="scanPreview"></div>
+
+        <div class="dialog-actions">
+          <button class="danger-action" id="deleteRecipeButton" type="button">Löschen</button>
+          <div>
+            <button type="button" id="cancelRecipeButton">Abbrechen</button>
+            <button class="primary-action" type="submit">Speichern</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
