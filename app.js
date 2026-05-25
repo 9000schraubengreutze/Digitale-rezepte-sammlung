@@ -406,9 +406,9 @@ async function extractTextFromPdfScan(file) {
 function applyOcrText(text) {
   const extracted = extractRecipeFields(text);
 
-  if (!fields.notes.value.trim()) fields.notes.value = text;
   if (!fields.title.value.trim() && extracted.title) fields.title.value = extracted.title;
   if (!fields.ingredients.value.trim() && extracted.ingredients) fields.ingredients.value = extracted.ingredients;
+  if (!fields.notes.value.trim() && extracted.instructions) fields.notes.value = extracted.instructions;
   if (!fields.time.value.trim() && extracted.time) fields.time.value = extracted.time;
   if (!fields.category.value.trim() && extracted.category) fields.category.value = extracted.category;
 }
@@ -426,12 +426,14 @@ function extractRecipeFields(text) {
   )) || "";
 
   const ingredients = extractIngredientLines(lines);
+  const instructions = extractInstructionLines(lines);
   const timeMatch = text.match(/(\d{1,3})\s*(min\.?|minute[n]?|std\.?|stunde[n]?)/i);
   const category = guessCategory(`${title} ${text}`);
 
   return {
     title,
     ingredients: ingredients.join("\n"),
+    instructions: instructions.join("\n"),
     time: timeMatch ? timeMatch[0].replace(/\s+/g, " ") : "",
     category
   };
@@ -439,7 +441,7 @@ function extractRecipeFields(text) {
 
 function extractIngredientLines(lines) {
   const ingredientStart = lines.findIndex((line) => /zutaten|einkaufsliste/i.test(line));
-  const stopPattern = /zubereitung|anleitung|backen|kochen|arbeitszeit|naehrwerte|notizen/i;
+  const stopPattern = /zubereitung|anleitung|zubereiten|backen|kochen|arbeitszeit|naehrwerte|notizen|tipp/i;
   const amountPattern = /^(\d+|[¼½¾⅓⅔]|\d+[.,]\d+)\s*(g|kg|ml|l|el|tl|prise|stueck|stk\.?|bund|dose|packung|becher|tasse)?\b/i;
 
   const source = ingredientStart >= 0 ? lines.slice(ingredientStart + 1) : lines;
@@ -447,13 +449,75 @@ function extractIngredientLines(lines) {
 
   for (const line of source) {
     if (stopPattern.test(line) && ingredients.length > 0) break;
-    if (amountPattern.test(line) || /^[*-]\s+/.test(line)) {
-      ingredients.push(line.replace(/^[*-]\s+/, ""));
+    const cleaned = cleanupRecipeLine(line);
+    if (isNoiseLine(cleaned)) continue;
+    if (amountPattern.test(cleaned) || looksLikeIngredient(cleaned) || /^[*-]\s+/.test(cleaned)) {
+      ingredients.push(cleaned.replace(/^[*-]\s+/, ""));
     }
     if (ingredients.length >= 18) break;
   }
 
-  return ingredients;
+  return uniqueLines(ingredients);
+}
+
+function extractInstructionLines(lines) {
+  const instructionStart = lines.findIndex((line) => /zubereitung|anleitung|zubereiten|ubereitung/i.test(line));
+  const ingredientStart = lines.findIndex((line) => /zutaten|einkaufsliste/i.test(line));
+  const stopPattern = /naehrwerte|notizen|tipp|varianten|quelle|impressum|www\.|http/i;
+  const numberedStepPattern = /^(\d+[\).:-]|\d+\s)\s*/;
+
+  let source = lines;
+  if (instructionStart >= 0) {
+    source = lines.slice(instructionStart + 1);
+  } else if (ingredientStart >= 0) {
+    source = lines.slice(ingredientStart + 1);
+  }
+
+  const steps = [];
+  for (const line of source) {
+    const cleaned = cleanupRecipeLine(line);
+    if (isNoiseLine(cleaned)) continue;
+    if (stopPattern.test(cleaned) && steps.length > 0) break;
+    if (looksLikeIngredient(cleaned)) continue;
+    if (cleaned.length < 12) continue;
+
+    const sentenceLike = /[.!?:]$/.test(cleaned) || /geben|mischen|ruehren|verruehren|schneiden|kochen|backen|braten|ziehen|wuerzen|servieren|heizen|formen|kneten|lassen/i.test(cleaned);
+    if (sentenceLike || numberedStepPattern.test(cleaned)) {
+      steps.push(cleaned.replace(numberedStepPattern, ""));
+    }
+    if (steps.length >= 10) break;
+  }
+
+  return uniqueLines(steps);
+}
+
+function looksLikeIngredient(line) {
+  return /^(\d+|\d+[.,]\d+|1\/2|1\/3|2\/3|1\/4|3\/4)\s*(g|kg|mg|ml|l|el|tl|prise|prisen|stueck|stk\.?|bund|dose|dosen|packung|paeckchen|becher|tasse|tassen|scheibe|scheiben)?\b/i.test(line);
+}
+
+function cleanupRecipeLine(line) {
+  return String(line || "")
+    .replace(/[|_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isNoiseLine(line) {
+  return !line ||
+    line.length < 2 ||
+    /^(seite|page)\s+\d+/i.test(line) ||
+    /^(foto|bild|scan|copyright|quelle)\b/i.test(line) ||
+    /www\.|https?:\/\//i.test(line);
+}
+
+function uniqueLines(lines) {
+  const seen = new Set();
+  return lines.filter((line) => {
+    const key = normalize(line);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function guessCategory(text) {
